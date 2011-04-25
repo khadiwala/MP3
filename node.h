@@ -12,6 +12,7 @@
 #include <stdlib.h>
 
 #define DSM_SIZE 100
+#define BUFFER_SIZE 256
 #define DEBUGPRINT if(false)
 #define DEBUGLOCK if(false)
 using namespace std;
@@ -35,22 +36,24 @@ class Node
 {
 //protected:
 public:
+	
+	Node(int nodeID, int portNumber, map<int, int> memMap, map<int, int>portMap);
+	~Node();
+
     	int nodeID; ///> relative node id to the system
 	int listeningSocket; 
 	map<int, int> memoryMap; // shows where a byte is located (nodeID)
 	map<int, int> socketMap; // shows where a node id located (socket)
-	instance status;
+	volatile instance status;
     	sem_t * strtokLock;
-    	
-	Node(int nodeID, int portNumber);
-	~Node();
-
-	vector<pthread_t*> connectingThreads;
+    	vector<pthread_t*> connectingThreads;
+	
+	void handle(char * buf);
 	///These should be called before changing class data
 	void grabLock(sem_t * lock);
 	void postLock(sem_t * lock);
 	
-}
+};
 struct spawnNewRecieverInfo {void * node; int newConnectedSocket;};
 
 #endif

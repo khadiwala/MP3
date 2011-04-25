@@ -1,15 +1,14 @@
 #include "node.h"
-#include "introducer.h"
+
 
 
 Node::Node(int nodeID, int portNumber, map<int, int>  memMap, map <int, int>portMap)
 {
 	DEBUGPRINT printf("Constructing node %i \n", nodeID);
-  this->nodeID = nodeID;
-	instanceof = NODE;
+  	this->nodeID = nodeID;
+	status = NODE;
 	strtokLock = new sem_t;
-  sem_init(strtokLock, 0, 1);
-	
+  	sem_init(strtokLock, 0, 1);
 	memoryMap = memMap;
 	
 	/// set up socket
@@ -28,7 +27,7 @@ Node::Node(int nodeID, int portNumber, map<int, int>  memMap, map <int, int>port
 Node::~Node()
 {
     DEBUGPRINT printf("NODE:%d IS DEAD--------\n",this->nodeID);
-    instanceof = DEAD;
+    status = DEAD;
     close(listeningSocket);
     pthread_t * oldThread;
     sem_destroy(strtokLock);
@@ -53,6 +52,9 @@ void Node::postLock(sem_t * lock)
 	while(sem_post(lock) != 0)
 		DEBUGPRINT cout<<"posting to the lock failed, trying again\n";
 }
+void Node::handle(char * buf)
+{
+}
 void * acceptConnections(void * nodeClass)
 {
 	Node * node = (Node *)nodeClass;
@@ -61,9 +63,9 @@ void * acceptConnections(void * nodeClass)
 	///start accepting connections
 	pthread_t * newThread;
 	int connectingSocket;
-	while(node->getInstance() != DEAD)
+	while(node->status != DEAD)
 	{
-		connectingSocket = accept(node->getListeningSock());
+		connectingSocket = accept(node->listeningSocket);
 		if(connectingSocket != -1)
 		{
 			///Creates new thread to listen on this connection
@@ -81,9 +83,9 @@ void * spawnNewReciever(void * information)
 {
 	spawnNewRecieverInfo info =*((spawnNewRecieverInfo*)information);
 	Node * node = (Node*)info.node;
-	int connectedSocket =info.newConnectedSocket;
+	int connectedSocket = info.newConnectedSocket;
 	char * c = new char[2];
-	char * buf = new char[256];
+	char * buf = new char[BUFFER_SIZE];
 	buf[0] = 0;
 	int i = 0;
 	while(s_recv(connectedSocket, c, 1))	
