@@ -1,0 +1,6 @@
+*.o
+dsm
+coordinator
+memory_map.conf
+membership.conf
+comms
