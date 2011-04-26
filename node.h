@@ -37,16 +37,17 @@ class Node
 //protected:
 public:
 	
-	Node(int nodeID, int portNumber, map<int, int> memMap, map<int, int>portMap);
+	Node(int nodeID, int portNumber,vector<int> memoryMap, map<int, int>portMap);
 	~Node();
-
-    	int nodeID; ///> relative node id to the system
+		
+	int nodeID; ///> relative node id to the system
 	int listeningSocket; 
-	map<int, int> memoryMap; // shows where a byte is located (nodeID)
+	vector<int> memMap; // shows at which node a byte is located (nodeID)
+	map<int, int> nodeLocalMem; // maps locations at this node to values
 	map<int, int> socketMap; // shows where a node id located (socket)
 	volatile instance status;
-    	sem_t * strtokLock;
-    	vector<pthread_t*> connectingThreads;
+	sem_t * strtokLock;
+	vector<pthread_t*> connectingThreads;
 	
 	void handle(char * buf);
 	///These should be called before changing class data

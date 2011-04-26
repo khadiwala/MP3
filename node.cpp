@@ -1,15 +1,14 @@
 #include "node.h"
 
 
-
-Node::Node(int nodeID, int portNumber, map<int, int>  memMap, map <int, int>portMap)
+Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>portMap)
 {
 	DEBUGPRINT printf("Constructing node %i \n", nodeID);
   	this->nodeID = nodeID;
 	status = NODE;
 	strtokLock = new sem_t;
   	sem_init(strtokLock, 0, 1);
-	memoryMap = memMap;
+	memMap = memoryMap;
 	
 	/// set up socket
 	listeningSocket = new_socket();
@@ -22,7 +21,25 @@ Node::Node(int nodeID, int portNumber, map<int, int>  memMap, map <int, int>port
 	pthread_create(acceptor, NULL, 
 			acceptConnections, this);
 
+	//step through memmap, if a location is 
+	//at this nodeid add to nodeLocalMem map
+	for(int i = 0; i < memMap.size(); i++){
+		if(memMap[i] == nodeID)
+			nodeLocalMem[i] = 0; //shared mem values initially 0
+	}
+
 	//start trying to connect to other nodes! based on portMap
+	map<int,int>::const_iterator end = portMap.end();
+	for(map<int,int>::const_iterator it = portMap.begin(); it!= end; it++)
+	{
+		//printf("key:%d; val:%d\n",it->first,it->second);
+		if(it->first != nodeID) //dont connect to self
+		{
+			socketMap[it->first] = new_socket();
+			printf("%d\n",it->first);
+			connect(socketMap[it->first],it->second); //connect loops	
+		}
+	}
 }
 Node::~Node()
 {

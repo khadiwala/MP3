@@ -1,22 +1,28 @@
-all: Nodes Utilities Run 
+all: Nodes Utilities RunCoord RunDSM Coordinator
 
 Nodes: node.o
 
-Utilities : socket.o helpers.o
+Utilities : socket.o
 	
-node.o : node.cpp node.h socket.h
+node.o : node.cpp node.h socket.h socket.cpp
 	g++ -c node.cpp
 
 socket.o : socket.cpp socket.h
 	g++ -c socket.cpp 
 
-helpers.o : helpers.cpp helpers.h
-	g++ -c helpers.cpp
+Coordinator : coordinator.cpp socket.h socket.cpp
+	g++ -c coordinator.cpp
 
-Run : Nodes Utilities
-	g++ -o dsm node.o helpers.o socket.o -lpthread -lm
+dsm : dsm.cpp dsm.h node.h node.cpp socket.h socket.cpp
+	g++ -c dsm.cpp
+
+RunCoord : Utilities Coordinator
+	g++ -o coordinator coordinator.o node.o socket.o -lpthread
+
+RunDSM : Nodes Utilities dsm
+	g++ -o dsm dsm.o node.o socket.o -lpthread
 clean : 
-	rm  dsm node.o socket.o helpers.o 
+	rm  dsm coordinator node.o socket.o coordinator.o dsm.o
 
 
 # DO NOT DELETE
