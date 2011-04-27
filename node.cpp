@@ -181,21 +181,53 @@ void Node::tokenAquired()
 				break;
 			}
 		}
-		if(! releaseFound) //wait for release command before doing anything
+		if(releaseFound) //if release found in the queued instructions
 		{
+			postLock(commandLock);
+			updateLocalMem(localQueue);
+			handleCommands(localQueue);
+			return;	
+		}
+		else //revert the queue back to the original
 			commands = localQueue;
-			releaseToken();
-		}
-		else
-		{
-			//TODO : handle commands
-		}
 	}
-	else //if no commands
-		releaseToken();
-
+	//if it gets here, the commands were not handled	
 	postLock(commandLock);
+	releaseToken();
 }
+void Node::updateLocalMem(queue<char *> commands)
+{
+	char * command, tempCommand[BUFFER_SIZE], char * token;
+	//iterate through the queue, reads through commands and updates memory
+	grabLock(strtokLock);
+	for(int i = 0; i < queue.size(); i++)
+	{
+		command = queue.front();
+		queue.pop();
+		queue.push(command);
+		Command interp = interpret(command);
+		if(interp == ADD || interp == PRINT)
+		{
+			strcpy(tempCommad, command);
+			token = strtok(tempCommand, ":"); //ignore first command number
+			token = strtok(NULL, ":");
+			int memAddr = atoi(token); 
+			while(token != NULL)
+			{
+				token = strtok(NULL, ":");
+				if(token != NULL || interp == PRINT) //add should not interpret last entry as address
+					updateIfNeeded(memAddr);
+				if(token != NULL)
+					memAddr = atoi(token);
+			}
+		}
+	}	
+	postLock(strtokLock);
+}
+void Node::updateIfNeeded(int memAddr)
+{}
+void Node::handleCommands(queue<char *> commands)
+{}
 void Node::releaseToken()
 {
 	send(successorID, "-1");
@@ -212,13 +244,13 @@ void Node::queueCommands(char * buf)
 	commands.push(command);
 	postLock(commandLock);
 }
-int Node::interpret(char * command)
+Node::Command Node::interpret(char * command)
 {
 	char commandNumber[2];
 	strncpy(commandNumber, command, sizeof(char));
 	commandNumber[2] = 0;
 	int number = atoi(commandNumber);
-	return number;
+	return (Command)number;
 }
 void Node::send(int nodeID, char * message)
 {

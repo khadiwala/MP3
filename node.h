@@ -58,14 +58,14 @@ public:
 	queue<char *> commands; ///> holds all the commands from the queueCommands
 	
 	void handle(char * buf); //handle requests from other nodes
-	enum {AQUIRE, RELEASE, ADD, PRINT};
+	enum Command {AQUIRE, RELEASE, ADD, PRINT};
 private:
 	int interpret(char * command);
 	void tokenAquired();
 	void releaseToken();
 	void handleCommands();
-	void updateValues(set<int> addresses);
-	void doComputations(stack<char *> commands);
+	void updateLocalMem(queue<char *> commands);
+	void handleCommands(queue<char *> commands);
 	void grabLock(sem_t * lock);
 	void postLock(sem_t * lock);
 	void send(int nodeID, char * message);
