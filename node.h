@@ -44,7 +44,7 @@ public:
 	Node(int nodeID, int portNumber,vector<int> memoryMap, map<int, int>portMap);
 	~Node();
 	int nodeID; ///> relative node id to the system
-	int sucuessorID; //'next' node
+	int successorID; //'next' node
 	volatile int listeningSocket; 
 	vector<int> memMap; // shows at which node a byte is located (nodeID)
 	map<int, cacheEntry *> nodeLocalMem; // maps locations at this node to values
@@ -58,8 +58,11 @@ public:
 	queue<char *> commands; ///> holds all the commands from the queueCommands
 	
 	void handle(char * buf); //handle requests from other nodes
+	enum {AQUIRE, RELEASE, ADD, PRINT};
 private:
+	int interpret(char * command);
 	void tokenAquired();
+	void releaseToken();
 	void handleCommands();
 	void updateValues(set<int> addresses);
 	void doComputations(stack<char *> commands);

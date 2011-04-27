@@ -42,7 +42,8 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 
 	//start trying to connect to other nodes! based on portMap
 	map<int,int>::const_iterator end = portMap.end();
-	int last;
+	successorID = -1;
+	int last = -1;
 	for(map<int,int>::const_iterator it = portMap.begin(); it!= end; it++)
 	{
 		//printf("key:%d; val:%d\n",it->first,it->second);
@@ -53,9 +54,11 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 			connect(socketMap[it->first],it->second); //connect loops	
 		}
 		if(last == nodeID)	//set sucuessor
-			sucuessorID = it->first;
+			successorID = it->first;
 		last = it->first;
 	}
+	if(successorID == -1) //I believe this connects the ring in the case that the nodeID is last
+		successorID = portMap.begin()->first;
 }
 Node::~Node()
 {
@@ -64,6 +67,7 @@ Node::~Node()
 	close(listeningSocket);
 	listeningSocket = -1; ///>tells accepting thread to die
 	pthread_t * oldThread;
+	//cancel all threads
 	while(!connectingThreads.empty())
 	{
 		oldThread = connectingThreads[connectingThreads.size()-1];
@@ -71,6 +75,11 @@ Node::~Node()
 		pthread_cancel(*oldThread);
 		delete oldThread;
 	}
+	//close all sockets
+	map<int,int>::const_iterator end = socketMap.end();
+	for(map<int,int>::const_iterator it = socketMap.begin(); it!= end; it++)
+		close(it->second);
+	//destroy semaphores
 	sem_destroy(commandLock);
 	sem_destroy(workLock);
 	sem_destroy(strtokLock);
@@ -118,6 +127,7 @@ void Node::handle(char * buf)
 		memAddr = atoi(strtok(NULL, ":"));
 		switch(token[0])
 		{
+			case 'R':
 			case 'r': //read request
 				respond = true;
 				returnMessage += ":a:";
@@ -125,16 +135,23 @@ void Node::handle(char * buf)
 				returnMessage += ':'; //a flags a response
 				returnMessage += itoa(read(memAddr,nodeID));
 				break;
+			case 'A':
 			case 'a': //acknowledge of read request
 				acknowledge = true; 
+			case 'W':
 			case 'w': //write request
 				value = atoi(strtok(NULL, ":"));	
 				write(memAddr, value, nodeID);
 				break;					
 			case 'C': //queueCommands flag
+			case 'c':
 				postLock(strtokLock);
 				queueCommands(buf);
 				return;
+			case 'i': //invalidate a memory address
+			case 'I':
+				invalidate(memAddr);
+				break;
 			default : 
 				assert(false);
 		}
@@ -148,17 +165,64 @@ void Node::handle(char * buf)
 }
 void Node::tokenAquired()
 {
-	stack<char *> commandStack;
+	bool releaseFound;
+	queue<char *> localQueue;
 	grabLock(commandLock);
-	while(! commands.empty())//store queue locally
+	if(! commands.empty())
 	{
-		commandStack.push(commands.front());
-		commands.pop();
+		assert(interpret(commands.front()) == AQUIRE);
+		while(! commands.empty())//store queue locally / look for release command
+		{
+			localQueue.push(commands.front());
+			commands.pop();
+			if(interpret(localQueue.back()) == RELEASE)
+			{
+				releaseFound = true;
+				break;
+			}
+		}
+		if(! releaseFound) //wait for release command before doing anything
+		{
+			commands = localQueue;
+			releaseToken();
+		}
+		else
+		{
+			//TODO : handle commands
+		}
 	}
+	else //if no commands
+		releaseToken();
+
 	postLock(commandLock);
+}
+void Node::releaseToken()
+{
+	send(successorID, "-1");
+}
+void Node::queueCommands(char * buf)
+{
+	grabLock(commandLock);
+	char command[BUFFER_SIZE];
+	int numColons = 0, i;
+	for(i = 0; i < BUFFER_SIZE; i++) //getting rid of meta data needed for handle
+		if(buf[i] == ':' && numColons++ == 2)
+			break;
+	strcpy(command, buf+i+1); 
+	commands.push(command);
+	postLock(commandLock);
+}
+int Node::interpret(char * command)
+{
+	char commandNumber[2];
+	strncpy(commandNumber, command, sizeof(char));
+	commandNumber[2] = 0;
+	int number = atoi(commandNumber);
+	return number;
 }
 void Node::send(int nodeID, char * message)
 {
+	s_send(socketMap[nodeID], message);	
 }
 void Node::write(int memAddress, int value, int nodeID)
 {
@@ -197,19 +261,6 @@ void Node::invalidate(int memAdress)
 	delete entry;
 	nodeLocalMem.erase(memAdress);
 	postLock(localMemLock);
-}
-
-void Node::queueCommands(char * buf)
-{
-	grabLock(commandLock);
-	char command[BUFFER_SIZE];
-	int numColons = 0, i;
-	for(i = 0; i < BUFFER_SIZE; i++) //getting rid of meta data needed for handle
-		if(buf[i] == ':' && numColons++ == 2)
-			break;
-	strcpy(command, buf+i+1); 
-	commands.push(command);
-	postLock(commandLock);
 }
 void * acceptConnections(void * nodeClass)
 {

@@ -2,4 +2,6 @@ nodeID:
 		[r:mem1][:] //read from mem address 1
 		[w:mem3:value5][:] //write to mem address 3 value5
 		[a:mem3:value6][:] //write to mem address 3 value 6, and post the work lock when done
+		[C:commands] //
+		[i:mem1][:] //
 -1 //you just got the token!
