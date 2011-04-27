@@ -34,6 +34,8 @@ void * spawnNewReciever(void * NodeClass);
 //////////////////////////////////////////////////
 void * acceptConnections(void * NodeClass);
 
+struct cacheEntry {int value; vector<int> readers;};
+
 class Node
 {
 //protected:
@@ -42,15 +44,17 @@ public:
 	Node(int nodeID, int portNumber,vector<int> memoryMap, map<int, int>portMap);
 	~Node();
 	int nodeID; ///> relative node id to the system
+	int sucuessorID; //'next' node
 	volatile int listeningSocket; 
 	vector<int> memMap; // shows at which node a byte is located (nodeID)
-	map<int, int> nodeLocalMem; // maps locations at this node to values
+	map<int, cacheEntry *> nodeLocalMem; // maps locations at this node to values
 	map<int, int> socketMap; // shows where a node id located (socket)
 	sem_t * commandLock;
 	sem_t * workLock; ///> gets unlocked when a node replies to this node with requested data
 	sem_t * lifeLock; ///>lock becomes unlocked in the destructor
 	sem_t * strtokLock; ///>used in conjunction with strtok because it is not thread safe
-    	vector<pthread_t*> connectingThreads; ///>holds all threads the node spawns
+	sem_t * localMemLock;///>for reading/writing node's local memory
+   	vector<pthread_t*> connectingThreads; ///>holds all threads the node spawns
 	queue<char *> commands; ///> holds all the commands from the queueCommands
 	
 	void handle(char * buf); //handle requests from other nodes
@@ -62,8 +66,9 @@ private:
 	void grabLock(sem_t * lock);
 	void postLock(sem_t * lock);
 	void send(int nodeID, char * message);
-	void write(int memAddress, int value);
-	int read(int memAddress);
+	void write(int memAddress, int value, int nodeID);
+	int read(int memAddress, int nodeID);
+	void invalidate(int memAdress);
 	void queueCommands(char * buf);
 };
 struct spawnNewRecieverInfo {void * node; int newConnectedSocket;};

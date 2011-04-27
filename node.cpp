@@ -9,11 +9,14 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 	lifeLock = new sem_t;
 	strtokLock = new sem_t;	
 	commandLock = new sem_t;
+	localMemLock = new sem_t;
 	sem_init(workLock, 0, 0);
 	sem_init(lifeLock, 0, 0);
   	sem_init(strtokLock, 0, 1);
 	sem_init(commandLock, 0, 1);
+	sem_init(localMemLock, 0, 1);
 	memMap = memoryMap;
+
 	/// set up socket
 	listeningSocket = new_socket();
 	bind(listeningSocket, portNumber);
@@ -27,13 +30,19 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 
 	//step through memmap, if a location is 
 	//at this nodeid add to nodeLocalMem map
+	//also store succuessor
 	for(int i = 0; i < memMap.size(); i++){
 		if(memMap[i] == nodeID)
-			nodeLocalMem[i] = 0; //shared mem values initially 0
+		{
+			cacheEntry * entry = new cacheEntry();
+			entry->value = 0;  //shared mem values initially 0
+			nodeLocalMem[i] = entry; 
+		}
 	}
 
 	//start trying to connect to other nodes! based on portMap
 	map<int,int>::const_iterator end = portMap.end();
+	int last;
 	for(map<int,int>::const_iterator it = portMap.begin(); it!= end; it++)
 	{
 		//printf("key:%d; val:%d\n",it->first,it->second);
@@ -43,6 +52,9 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 			printf("%d\n",it->first);
 			connect(socketMap[it->first],it->second); //connect loops	
 		}
+		if(last == nodeID)	//set sucuessor
+			sucuessorID = it->first;
+		last = it->first;
 	}
 }
 Node::~Node()
@@ -52,7 +64,6 @@ Node::~Node()
 	close(listeningSocket);
 	listeningSocket = -1; ///>tells accepting thread to die
 	pthread_t * oldThread;
-	sem_destroy(strtokLock);
 	while(!connectingThreads.empty())
 	{
 		oldThread = connectingThreads[connectingThreads.size()-1];
@@ -63,9 +74,11 @@ Node::~Node()
 	sem_destroy(commandLock);
 	sem_destroy(workLock);
 	sem_destroy(strtokLock);
+	sem_destroy(localMemLock);
 	delete workLock;
 	delete strtokLock;
 	delete commandLock;
+	delete localMemLock;
 	sem_destroy(lifeLock);
 	delete lifeLock;
 }
@@ -110,13 +123,13 @@ void Node::handle(char * buf)
 				returnMessage += ":a:";
 				returnMessage += memAddr;
 				returnMessage += ':'; //a flags a response
-				returnMessage += itoa(read(memAddr));
+				returnMessage += itoa(read(memAddr,nodeID));
 				break;
 			case 'a': //acknowledge of read request
 				acknowledge = true; 
 			case 'w': //write request
 				value = atoi(strtok(NULL, ":"));	
-				write(memAddr, value);
+				write(memAddr, value, nodeID);
 				break;					
 			case 'C': //queueCommands flag
 				postLock(strtokLock);
@@ -145,11 +158,47 @@ void Node::tokenAquired()
 	postLock(commandLock);
 }
 void Node::send(int nodeID, char * message)
-{}
-void Node::write(int memAddress, int value)
-{}
-int Node::read(int memAddress)
-{}
+{
+}
+void Node::write(int memAddress, int value, int nodeID)
+{
+	grabLock(localMemLock);
+	cacheEntry * entry = nodeLocalMem[memAddress];
+	char invalidate_msg[BUFFER_SIZE];
+	//set invalidate_msg
+
+	while(entry->readers.size() > 0) 
+	{
+		int rdr = entry->readers.back();
+		entry->readers.pop_back();
+		if(rdr != nodeID)	// don't want to invaliate writer's val
+		{
+			send(rdr,invalidate_msg);
+		}
+	}	
+	entry->readers.push_back(nodeID); //the writer has a cache copy
+	postLock(localMemLock);
+}
+int Node::read(int memAddress,int nodeID)
+{
+	grabLock(localMemLock);
+	cacheEntry * entry = nodeLocalMem[memAddress];
+	entry->readers.push_back(nodeID);//mark this nodeID as a reader
+	int ret = entry->value;
+	postLock(localMemLock);
+	return ret;
+}
+
+void Node::invalidate(int memAdress)
+{
+	grabLock(localMemLock);
+	cacheEntry * entry = nodeLocalMem[memAdress];
+	entry->readers.clear();
+	delete entry;
+	nodeLocalMem.erase(memAdress);
+	postLock(localMemLock);
+}
+
 void Node::queueCommands(char * buf)
 {
 	grabLock(commandLock);
