@@ -186,6 +186,7 @@ void Node::tokenAquired()
 			postLock(commandLock);
 			updateLocalMem(localQueue);
 			handleCommands(localQueue);
+			releaseToken();
 			return;	
 		}
 		else //revert the queue back to the original
@@ -198,7 +199,9 @@ void Node::tokenAquired()
 void Node::updateLocalMem(queue<char *> commands)
 {
 	char * command, tempCommand[BUFFER_SIZE], * token;
-	//iterate through the queue, reads through commands and updates memory
+	set<int> memToUpdate;
+
+	//iterate through the queue, reads through commands and finds all memory address that we're going to use
 	grabLock(strtokLock);
 	for(int i = 0; i < commands.size(); i++)
 	{
@@ -211,23 +214,68 @@ void Node::updateLocalMem(queue<char *> commands)
 			strcpy(tempCommand, command);
 			token = strtok(tempCommand, ":"); //ignore first command number
 			token = strtok(NULL, ":");
-			int memAddr = atoi(token); 
+			int memAddr = atoi(token); //first address
 			while(token != NULL)
 			{
 				token = strtok(NULL, ":");
-				if(token != NULL || interp == PRINT) //add should not interpret last entry as address
-					updateIfNeeded(memAddr);
-				if(token != NULL)
-					memAddr = atoi(token);
+				if(token != NULL || interp == PRINT) //add should not interpret last entry as address, print should
+					memToUpdate.insert(memAddr);
 			}
 		}
 	}	
 	postLock(strtokLock);
+	
+	//update memory
+	map<int , char *> nodeRequest;
+	set<int>::const_iterator memToUpdateEnd = memToUpdate.end();
+	for(set<int>::const_iterator it = memToUpdate.begin(); it!= memToUpdateEnd; it++)
+	{
+		if(nodeLocalMem.count(*it) == 0) //if we don't have a local copy already
+		{
+			int node = memMap[*it]; //node where the byte is stored at
+			if(nodeRequest.count(node) == 0)//if this is the first request to this node build message
+			{
+				char * newEntry = nodeRequest[node];
+				newEntry = new char[BUFFER_SIZE];
+				strcpy(newEntry, itoa(nodeID));
+				strcat(newEntry, ":r");	
+			}
+			char * message = nodeRequest[node];
+			strcat(message, ":");
+			strcat(message, itoa(*it));
+		}
+	}
+	memToUpdate.clear();
+	//send requests
+	int sentMessages = 0;
+	map<int, char *>::const_iterator nodeRequestEnd = nodeRequest.end();
+	for(map<int, char *>::const_iterator it = nodeRequest.begin(); it != nodeRequestEnd; it++) 
+	{
+		sentMessages++;
+		send(it->first, it->second);
+		delete it->second;
+	}
+	nodeRequest.clear();
+	for(int i = 0; i < sentMessages; i++) //wait for all acknowledges to finish before returning
+		grabLock(workLock);
 }
-void Node::updateIfNeeded(int memAddr)
-{}
+
 void Node::handleCommands(queue<char *> commands)
-{}
+{
+	char * command;
+	while(commands.size() != 0)
+	{
+		command = commands.front();
+		commands.pop();
+		switch(interpret(command))
+		{
+			case ADD:
+				break;
+			case PRINT:
+				break;
+		}
+	}
+}
 void Node::releaseToken()
 {
 	send(successorID, "-1");

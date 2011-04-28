@@ -81,7 +81,6 @@ private:
 	*/
 	void updateLocalMem(queue<char *> commands);
 	
-	void updateIfNeeded(int memAddr);	
 	/**
 	* called when this node has the token
 	*/
