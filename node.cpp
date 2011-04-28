@@ -197,18 +197,18 @@ void Node::tokenAquired()
 }
 void Node::updateLocalMem(queue<char *> commands)
 {
-	char * command, tempCommand[BUFFER_SIZE], char * token;
+	char * command, tempCommand[BUFFER_SIZE], * token;
 	//iterate through the queue, reads through commands and updates memory
 	grabLock(strtokLock);
-	for(int i = 0; i < queue.size(); i++)
+	for(int i = 0; i < commands.size(); i++)
 	{
-		command = queue.front();
-		queue.pop();
-		queue.push(command);
+		command = commands.front();
+		commands.pop();
+		commands.push(command);
 		Command interp = interpret(command);
 		if(interp == ADD || interp == PRINT)
 		{
-			strcpy(tempCommad, command);
+			strcpy(tempCommand, command);
 			token = strtok(tempCommand, ":"); //ignore first command number
 			token = strtok(NULL, ":");
 			int memAddr = atoi(token); 
@@ -262,7 +262,9 @@ void Node::write(int memAddress, int value, int nodeID)
 	cacheEntry * entry = nodeLocalMem[memAddress];
 	char invalidate_msg[BUFFER_SIZE];
 	//set invalidate_msg
-
+	strcpy(invalidate_msg, itoa(Node::nodeID));
+	strcat(invalidate_msg, ":i:");
+	strcat(invalidate_msg, itoa(memAddress));
 	while(entry->readers.size() > 0) 
 	{
 		int rdr = entry->readers.back();

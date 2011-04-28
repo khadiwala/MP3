@@ -60,18 +60,55 @@ public:
 	void handle(char * buf); //handle requests from other nodes
 	enum Command {AQUIRE, RELEASE, ADD, PRINT};
 private:
-	int interpret(char * command);
+	/**
+	*  interprets the command number of the command and returns the Command 
+	*/
+	Command interpret(char * command);
+	
+	/**
+	* function is called when this node aquires the token, it should c
+	* check to see if work is needed to be done and do it
+	*/
 	void tokenAquired();
+	
+	/**
+	* sends a message to the next node giving them the token
+	*/ 
 	void releaseToken();
-	void handleCommands();
+	
+	/**
+	* before doing any commands, we update all memory addresses
+	*/
 	void updateLocalMem(queue<char *> commands);
+	
+	void updateIfNeeded(int memAddr);	
+	/**
+	* called when this node has the token
+	*/
 	void handleCommands(queue<char *> commands);
+	
 	void grabLock(sem_t * lock);
 	void postLock(sem_t * lock);
 	void send(int nodeID, char * message);
+	
+	/**
+	* nodeID is requesting a write of value to memAddress
+	*/
 	void write(int memAddress, int value, int nodeID);
+	
+	/**
+	* nodeID is requesting a read of memAddr
+	*/
 	int read(int memAddress, int nodeID);
+	
+	/**
+	* called when a node sends an invalidate memory command, this node should remove that memAddr from it's cache
+	*/ 
 	void invalidate(int memAdress);
+	
+	/**
+	* called when coordinator sends a command to this node
+	*/
 	void queueCommands(char * buf);
 };
 struct spawnNewRecieverInfo {void * node; int newConnectedSocket;};
