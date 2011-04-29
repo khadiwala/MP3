@@ -15,8 +15,8 @@ int main(int argc, char* argv[]){
 	int nodePort = portMap[nodeID];
 	vector<int> memMap = parseMemMap();
 	Node * n = new Node(nodeID,nodePort,memMap,portMap);
-	while(true)
-		sleep(1); 
+	n->grabLock(n->lifeLock);
+	cout<<"dead\n"; 
 	
 }
 

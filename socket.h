@@ -25,7 +25,5 @@ int accept(int sfd);
 void connect(int sfd, int port);
 bool s_recv(int sfd, char * buf, int sizeOfBuf);
 void s_send(int sfd, char * buf);
-char * itoa(int integer);
-bool inBetween(int middle, int left, int right);
-
+char * itoa(int a);
 #endif

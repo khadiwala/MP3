@@ -114,43 +114,11 @@ void s_send(int sfd, char* buf)
         perror("error writing . to socket");
 }
 
-///converts the integer to its ascii representation
-char * itoa(int integer)
+
+char * itoa(int a)
 {
-	const int ZERO = 48;
-	int i;
-	int digits = 1;
-	for(i = 10; i < INT_MAX; i=i*10)
-	{
-		if(i >= integer)
-			break;
-		digits++;
-	}
-	
-	char * returnChar = new char[digits + 1]; 
-	int modNumber = 10;
-	int divideNumber = 1;
-	returnChar[digits] = '\0';
-	for(i = digits - 1; i != -1; i--)
-	{
-		returnChar[i] = ((integer % modNumber) / divideNumber) + ZERO;
-		modNumber *= 10;
-		divideNumber *= 10;
-	}
-    if(integer == 10)   //hack
-        strcpy(returnChar,"10");
-	return returnChar;
+	char * digits = new char[6];	
+	sprintf(digits,"%d",a);
+	return digits;
 }
 
-//returns true if arg 1 is in between args 2 and 3 modulo m
-// false if middle = right
-bool inBetween(int middle,int left, int right)
-{
-    if(left <= middle && middle < right)
-        return true;
-    if(middle <= left && middle < right && left > right)
-        return true;
-    if(right < left && (middle >= left || middle < right))
-        return true;
-    return false;
-}

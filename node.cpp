@@ -50,8 +50,9 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 		if(it->first != nodeID) //dont connect to self
 		{
 			socketMap[it->first] = new_socket();
-			printf("%d\n",it->first);
+			DEBUGPRINT printf("node %d waiting for node %d\n",nodeID,it->first);
 			connect(socketMap[it->first],it->second); //connect loops	
+			DEBUGPRINT printf("node %d connected to node %d\n",nodeID,it->first);
 		}
 		if(last == nodeID)	//set sucuessor
 			successorID = it->first;
@@ -59,6 +60,8 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 	}
 	if(successorID == -1) //I believe this connects the ring in the case that the nodeID is last
 		successorID = portMap.begin()->first;
+
+	cout<<nodeID<<" SUCCESSOR ID "<<successorID<<endl;
 }
 Node::~Node()
 {
@@ -106,50 +109,59 @@ void Node::postLock(sem_t * lock)
 }
 void Node::handle(char * buf)
 {
+	DEBUGPRINT printf("Node: %d recieved command %s\n",nodeID,buf);
 	bool respond = false;
 	bool acknowledge = false;
-	string returnMessage = itoa(nodeID);
+	char * returnMessage = itoa(nodeID);
 	grabLock(strtokLock);
-	char * token = strtok(buf, ":");
-	assert(token != NULL);
-	int nodeID = atoi(token);
-	if(nodeID == -1)
+	char copy[BUFFER_SIZE];
+	strcpy(copy, buf);
+	char * token = strtok(copy, ":");
+	//assert(token != NULL);
+	int commandNodeID = atoi(token);
+	if(commandNodeID == -1)
 	{
 		postLock(strtokLock);
 		tokenAquired();
 		return;
 	}
-	strtok(NULL, ":");
+	token = strtok(NULL, ":");
 	int memAddr, value;
-	while(token != NULL);
+	while(token != NULL)
 	{
-		assert(strlen(token) == 1);
+		DEBUGPRINT printf("command - %s\n", token);
 		memAddr = atoi(strtok(NULL, ":"));
+		DEBUGPRINT printf("memAddr - %i\n", memAddr);
 		switch(token[0])
 		{
 			case 'R':
 			case 'r': //read request
+				DEBUGPRINT printf("node %i read request\n", nodeID);
 				respond = true;
-				returnMessage += ":a:";
-				returnMessage += memAddr;
-				returnMessage += ':'; //a flags a response
-				returnMessage += itoa(read(memAddr,nodeID));
+				strcat(returnMessage,":a:");
+				strcat(returnMessage,itoa(memAddr));
+				strcat(returnMessage, ":"); //a flags a response
+				strcat(returnMessage,itoa(read(memAddr,commandNodeID)));
 				break;
 			case 'A':
 			case 'a': //acknowledge of read request
+				DEBUGPRINT printf("node %i acknowledge\n", nodeID);
 				acknowledge = true; 
 			case 'W':
 			case 'w': //write request
+				DEBUGPRINT printf("node %i write request\n", nodeID);
 				value = atoi(strtok(NULL, ":"));	
-				write(memAddr, value, nodeID);
+				write(memAddr, value, commandNodeID);
 				break;					
 			case 'C': //queueCommands flag
 			case 'c':
+				DEBUGPRINT printf("node %i coordinator request\n", nodeID);	
 				postLock(strtokLock);
 				queueCommands(buf);
 				return;
 			case 'i': //invalidate a memory address
 			case 'I':
+				DEBUGPRINT printf("node %i invalide request\n", nodeID);
 				invalidate(memAddr);
 				break;
 			default : 
@@ -159,21 +171,23 @@ void Node::handle(char * buf)
 	}	
 	postLock(strtokLock);
 	if(respond)
-		send(nodeID, (char *)returnMessage.c_str());	
+		send(commandNodeID, returnMessage);	
 	if(acknowledge)
 		postLock(workLock);
 }
 void Node::tokenAquired()
 {
+	DEBUGPRINT printf("node %i aquiring token\n", nodeID);
 	bool releaseFound;
 	queue<char *> localQueue;
 	grabLock(commandLock);
 	if(! commands.empty())
 	{
-		assert(interpret(commands.front()) == AQUIRE);
+		//assert(interpret(commands.front()) == AQUIRE);
 		while(! commands.empty())//store queue locally / look for release command
 		{
 			localQueue.push(commands.front());
+			printf("%i command -%s\n", nodeID, localQueue.back()); 
 			commands.pop();
 			if(interpret(localQueue.back()) == RELEASE)
 			{
@@ -181,6 +195,7 @@ void Node::tokenAquired()
 				break;
 			}
 		}
+		sleep(5);
 		if(releaseFound) //if release found in the queued instructions
 		{
 			postLock(commandLock);
@@ -212,7 +227,9 @@ void Node::updateLocalMem(queue<char *> commands)
 		if(interp == ADD || interp == PRINT)
 		{
 			strcpy(tempCommand, command);
-			token = strtok(tempCommand, ":"); //ignore first command number
+			strtok(tempCommand, ":"); //ignore first command number
+			if(interp == ADD)
+				token = strtok(NULL, ":"); //ignore first memAddr, we write to this	
 			token = strtok(NULL, ":");
 			int memAddr = atoi(token); //first address
 			while(token != NULL)
@@ -238,10 +255,9 @@ void Node::updateLocalMem(queue<char *> commands)
 				char * newEntry = nodeRequest[node];
 				newEntry = new char[BUFFER_SIZE];
 				strcpy(newEntry, itoa(nodeID));
-				strcat(newEntry, ":r");	
 			}
 			char * message = nodeRequest[node];
-			strcat(message, ":");
+			strcat(message, ":r");
 			strcat(message, itoa(*it));
 		}
 	}
@@ -263,6 +279,10 @@ void Node::updateLocalMem(queue<char *> commands)
 void Node::handleCommands(queue<char *> commands)
 {
 	char * command;
+	char * token;
+	map<int , char *> nodeToWrite;
+	grabLock(strtokLock);
+	grabLock(localMemLock);
 	while(commands.size() != 0)
 	{
 		command = commands.front();
@@ -270,11 +290,61 @@ void Node::handleCommands(queue<char *> commands)
 		switch(interpret(command))
 		{
 			case ADD:
+			{
+				vector<int> memAddr;
+				token = strtok(command, ":"); ///>ignore type
+				token = strtok(NULL, ":"); ///> grab write address
+				int writeAddr = atoi(token);
+				token = strtok(NULL, ":"); ///> grab first byte address 
+				int value = atoi(token);
+				//stores all values to the vector except the last
+				while(token != NULL)
+				{
+					memAddr.push_back(value);
+					value = atoi(token);
+					token = strtok(NULL, ":");
+				}
+				int sum = 0;
+				
+				//add up all the stored bytes
+				for(int i = 0; i < memAddr.size(); i++)
+					sum += nodeLocalMem[memAddr[i]]->value;
+				sum += value; ///> add the last int
+				
+				// add command string on to the nodeToWrite if it doesn't exist
+				int writeNodeID = memMap[writeAddr];
+				if(nodeToWrite.count(writeNodeID) == 0)
+				{
+					char * newEntry = nodeToWrite[writeNodeID];
+					newEntry = new char[BUFFER_SIZE];
+					strcpy(newEntry, itoa(nodeID));
+				}
+				char * messageToSend = nodeToWrite[writeNodeID];
+				strcat(messageToSend, ":w:");					
+				strcat(messageToSend, itoa(writeAddr)); //address
+				strcat(messageToSend, ":"); 
+				strcat(messageToSend, itoa(sum)); //value
+			}
 				break;
 			case PRINT:
+			{
+				int garbage = atoi(strtok(command,":"));
+				int memloc = atoi(strtok(NULL,":"));
+				cout<<"Memory location "<<memloc<<"contains "<<nodeLocalMem[memloc]<<endl;
+			}
 				break;
 		}
+		delete command;
 	}
+	map<int, char *>::const_iterator writeEnd = nodeToWrite.end();
+	for(map<int, char *>::const_iterator it = nodeToWrite.begin(); it != writeEnd; it++) 
+	{
+		send(it->first, it->second);
+		delete it->second;
+	}
+	nodeToWrite.clear();
+	postLock(strtokLock);
+	postLock(localMemLock);
 }
 void Node::releaseToken()
 {
@@ -283,12 +353,17 @@ void Node::releaseToken()
 void Node::queueCommands(char * buf)
 {
 	grabLock(commandLock);
-	char command[BUFFER_SIZE];
-	int numColons = 0, i;
-	for(i = 0; i < BUFFER_SIZE; i++) //getting rid of meta data needed for handle
-		if(buf[i] == ':' && numColons++ == 2)
-			break;
-	strcpy(command, buf+i+1); 
+	char * command = new char[BUFFER_SIZE];
+	int j, i;
+	for(i = 0,j = 0; j < 2 && i < BUFFER_SIZE; i++){
+		if(buf[i] == ':')
+			j++;
+	}
+
+	DEBUGPRINT printf("queueing %s + %i\n", buf, i);
+	strcpy(command, buf+i); 
+	DEBUGPRINT printf("%i queueing - %s\n", nodeID, command);
+	cout<<endl;
 	commands.push(command);
 	postLock(commandLock);
 }

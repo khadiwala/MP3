@@ -17,7 +17,7 @@
 
 #define DSM_SIZE 100
 #define BUFFER_SIZE 256
-#define DEBUGPRINT if(false)
+#define DEBUGPRINT if(true)
 #define DEBUGLOCK if(false)
 using namespace std;
 
@@ -59,6 +59,9 @@ public:
 	
 	void handle(char * buf); //handle requests from other nodes
 	enum Command {AQUIRE, RELEASE, ADD, PRINT};
+	void grabLock(sem_t * lock);
+	void postLock(sem_t * lock);
+
 private:
 	/**
 	*  interprets the command number of the command and returns the Command 
@@ -86,8 +89,6 @@ private:
 	*/
 	void handleCommands(queue<char *> commands);
 	
-	void grabLock(sem_t * lock);
-	void postLock(sem_t * lock);
 	void send(int nodeID, char * message);
 	
 	/**
