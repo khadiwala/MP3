@@ -112,6 +112,7 @@ void Node::handle(char * buf)
 	DEBUGPRINT printf("Node: %d recieved command %s\n",nodeID,buf);
 	bool respond = false;
 	bool acknowledge = false;
+	bool alreadyAcked = false; //only one ack postlock per msg
 	char * returnMessage = itoa(nodeID);
 	grabLock(strtokLock);
 	char copy[BUFFER_SIZE];
@@ -147,6 +148,8 @@ void Node::handle(char * buf)
 			case 'a': //acknowledge of read request
 				DEBUGPRINT printf("node %i acknowledge\n", nodeID);
 				acknowledge = true; 
+				if(alreadyAcked)
+					acknowledge = false;
 			case 'W':
 			case 'w': //write request
 				DEBUGPRINT printf("node %i write request\n", nodeID);
@@ -171,13 +174,20 @@ void Node::handle(char * buf)
 	}	
 	postLock(strtokLock);
 	if(respond)
+	{
 		send(commandNodeID, returnMessage);	
+		printf("sent %s\n",returnMessage);
+	}
 	if(acknowledge)
+	{
 		postLock(workLock);
+		alreadyAcked = true;
+	}
 }
 void Node::tokenAquired()
 {
-	DEBUGPRINT printf("node %i aquiring token\n", nodeID);
+	sleep(1);//prevents crazy fast token passing
+	DEBUGPRINT printf("node %i aquiring token\n\tqueue size: %d\n", nodeID,commands.size());
 	bool releaseFound;
 	queue<char *> localQueue;
 	grabLock(commandLock);
@@ -187,7 +197,8 @@ void Node::tokenAquired()
 		while(! commands.empty())//store queue locally / look for release command
 		{
 			localQueue.push(commands.front());
-			printf("%i command -%s\n", nodeID, localQueue.back()); 
+			//DEBUGPRINT printf("command's size: %d\n",commands.size());
+			//DEBUGPRINT printf("%i command -%s\n", nodeID, localQueue.back()); 
 			commands.pop();
 			if(interpret(localQueue.back()) == RELEASE)
 			{
@@ -195,7 +206,6 @@ void Node::tokenAquired()
 				break;
 			}
 		}
-		sleep(5);
 		if(releaseFound) //if release found in the queued instructions
 		{
 			postLock(commandLock);
@@ -252,15 +262,17 @@ void Node::updateLocalMem(queue<char *> commands)
 			int node = memMap[*it]; //node where the byte is stored at
 			if(nodeRequest.count(node) == 0)//if this is the first request to this node build message
 			{
-				char * newEntry = nodeRequest[node];
-				newEntry = new char[BUFFER_SIZE];
+				//char * newEntry = nodeRequest[node];
+				char * newEntry = new char[BUFFER_SIZE];
 				strcpy(newEntry, itoa(nodeID));
+				nodeRequest[node] = newEntry;
 			}
 			char * message = nodeRequest[node];
-			strcat(message, ":r");
+			strcat(message, ":r:");
 			strcat(message, itoa(*it));
 		}
 	}
+	
 	memToUpdate.clear();
 	//send requests
 	int sentMessages = 0;
@@ -269,11 +281,16 @@ void Node::updateLocalMem(queue<char *> commands)
 	{
 		sentMessages++;
 		send(it->first, it->second);
+		printf("node %d sent %s to %d\n",this->nodeID,it->second,it->first);
 		delete it->second;
 	}
 	nodeRequest.clear();
+	DEBUGPRINT printf("%d\n",sentMessages);
 	for(int i = 0; i < sentMessages; i++) //wait for all acknowledges to finish before returning
+	{
+		DEBUGPRINT printf("waiting on ack %d\n",i);
 		grabLock(workLock);
+	}
 }
 
 void Node::handleCommands(queue<char *> commands)
@@ -283,9 +300,11 @@ void Node::handleCommands(queue<char *> commands)
 	map<int , char *> nodeToWrite;
 	grabLock(strtokLock);
 	grabLock(localMemLock);
+	DEBUGPRINT printf("node %d's commands queue has size %d\n",nodeID,commands.size());
 	while(commands.size() != 0)
 	{
 		command = commands.front();
+		DEBUGPRINT printf("node %d handling command %s\n",this->nodeID,command);
 		commands.pop();
 		switch(interpret(command))
 		{
@@ -324,6 +343,7 @@ void Node::handleCommands(queue<char *> commands)
 				strcat(messageToSend, itoa(writeAddr)); //address
 				strcat(messageToSend, ":"); 
 				strcat(messageToSend, itoa(sum)); //value
+				send(writeNodeID,messageToSend);
 			}
 				break;
 			case PRINT:
@@ -345,6 +365,7 @@ void Node::handleCommands(queue<char *> commands)
 	nodeToWrite.clear();
 	postLock(strtokLock);
 	postLock(localMemLock);
+	DEBUGPRINT printf("node %d finished handeling commands\n",nodeID);
 }
 void Node::releaseToken()
 {
@@ -360,11 +381,9 @@ void Node::queueCommands(char * buf)
 			j++;
 	}
 
-	DEBUGPRINT printf("queueing %s + %i\n", buf, i);
 	strcpy(command, buf+i); 
-	DEBUGPRINT printf("%i queueing - %s\n", nodeID, command);
-	cout<<endl;
 	commands.push(command);
+	DEBUGPRINT printf("%i queueing - %s. now has size %d\n\n", nodeID, command,commands.size());
 	postLock(commandLock);
 }
 Node::Command Node::interpret(char * command)
@@ -373,7 +392,7 @@ Node::Command Node::interpret(char * command)
 	strncpy(commandNumber, command, sizeof(char));
 	commandNumber[2] = 0;
 	int number = atoi(commandNumber);
-	return (Command)number;
+	return (Command) (number - 1);
 }
 void Node::send(int nodeID, char * message)
 {
@@ -382,7 +401,13 @@ void Node::send(int nodeID, char * message)
 void Node::write(int memAddress, int value, int nodeID)
 {
 	grabLock(localMemLock);
-	cacheEntry * entry = nodeLocalMem[memAddress];
+	cacheEntry * entry;
+	if(nodeLocalMem.count(memAddress) == 0)//create new entry if nesscry
+	{
+		entry = new cacheEntry();
+		nodeLocalMem[memAddress] = entry;
+	}
+	entry = nodeLocalMem[memAddress];
 	char invalidate_msg[BUFFER_SIZE];
 	//set invalidate_msg
 	strcpy(invalidate_msg, itoa(Node::nodeID));
@@ -397,14 +422,15 @@ void Node::write(int memAddress, int value, int nodeID)
 			send(rdr,invalidate_msg);
 		}
 	}	
-	entry->readers.push_back(nodeID); //the writer has a cache copy
+	//if(!ack) //if this is a read acknowledge write, writer is not using this value TODO ?
+		entry->readers.push_back(nodeID); //the writer has a cache copy
 	postLock(localMemLock);
 }
 int Node::read(int memAddress,int nodeID)
 {
 	grabLock(localMemLock);
 	cacheEntry * entry = nodeLocalMem[memAddress];
-	entry->readers.push_back(nodeID);//mark this nodeID as a reader
+	entry->readers.push_back(nodeID);//mark nodeID as a reader
 	int ret = entry->value;
 	postLock(localMemLock);
 	return ret;
