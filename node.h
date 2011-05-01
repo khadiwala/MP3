@@ -17,9 +17,16 @@
 
 #define DSM_SIZE 100
 #define BUFFER_SIZE 256
-#define DEBUGPRINT if(true)
+#define DEBUGPRINT if(false)
 #define DEBUGLOCK if(false)
 using namespace std;
+
+
+/////////////////////////////////////////////////
+// creates a thread to handle a command from 
+// a socket
+////////////////////////////////////////////////
+void * handleThread(void * handleInfo);
 
 //////////////////////////////////////////////////
 // Creates a thread to listen to a connecting socket
@@ -112,5 +119,5 @@ private:
 	void queueCommands(char * buf);
 };
 struct spawnNewRecieverInfo {void * node; int newConnectedSocket;};
-
+struct HandleInfo { Node * node; char * buf; };
 #endif

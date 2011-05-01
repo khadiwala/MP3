@@ -309,12 +309,11 @@ void Node::handleCommands(queue<char *> commands)
 	char * token;
 	map<int , char *> nodeToWrite;
 	grabLock(strtokLock);
-	grabLock(localMemLock);
 	DEBUGPRINT printf("node %d's commands queue has size %d\n",nodeID,commands.size());
 	while(commands.size() != 0)
 	{
 		command = commands.front();
-		DEBUGPRINT printf("node %d handling command %s\n",this->nodeID,command);
+		printf("node %d handling command %s\n",this->nodeID,command);
 		commands.pop();
 		switch(interpret(command))
 		{
@@ -326,22 +325,26 @@ void Node::handleCommands(queue<char *> commands)
 				token = strtok(NULL, ":"); ///> grab write address
 				int writeAddr = atoi(token);
 				token = strtok(NULL, ":"); ///> grab first byte address 
-				int value = atoi(token);
+				int addr = atoi(token);
 				//stores all values to the vector except the last
 				while(token != NULL)
 				{
-					memAddr.push_back(value);
-					value = atoi(token);
+					memAddr.push_back(addr);
 					token = strtok(NULL, ":");
+					if(token != NULL)
+						addr = atoi(token);
 				}
 				int sum = 0;
-				
+				int value = memAddr.back();
+				memAddr.pop_back();
 				//add up all the stored bytes
+				grabLock(localMemLock);
 				for(int i = 0; i < memAddr.size(); i++)
 				{
-					DEBUGPRINT printf("%i value %i\n", memAddr[i], nodeLocalMem[memAddr[i]]->value);
+					printf("%i value %i\n", memAddr[i], nodeLocalMem[memAddr[i]]->value);
 					sum += nodeLocalMem[memAddr[i]]->value;
 				}
+				postLock(localMemLock);
 				sum += value; ///> add the last int
 				printf("total sum for addr %i = %i\n", writeAddr, sum);
 				// add command string on to the nodeToWrite if it doesn't exist
@@ -362,14 +365,18 @@ void Node::handleCommands(queue<char *> commands)
 					strcat(messageToSend, itoa(sum)); //value
 					DEBUGPRINT printf("%i new send message to %i: %s\n", this->nodeID, writeNodeID, messageToSend);
 				}
+				
+				write(writeAddr, sum, this->nodeID);
 			}
 				break;
 			case PRINT:
 			{
+				grabLock(localMemLock);
 				int garbage = atoi(strtok(command,":"));
 				int memloc = atoi(strtok(NULL,":"));
 				cout<<"Memory location "<<memloc<<" contains "<<nodeLocalMem[memloc]->value
 					<<" stored at "<<memMap[memloc]<<endl;
+				postLock(localMemLock);
 			}
 				break;
 		}
@@ -385,7 +392,6 @@ void Node::handleCommands(queue<char *> commands)
 	}
 	nodeToWrite.clear();
 	postLock(strtokLock);
-	postLock(localMemLock);
 	//wait for acknoledges for the sends
 	for(int i = 0; i < messagesSent; i++)
 		grabLock(workLock);
@@ -420,8 +426,8 @@ Node::Command Node::interpret(char * command)
 }
 void Node::send(int nodeID, char * message)
 {
-	DEBUGPRINT printf("%i sending %s to %i\n", this->nodeID, message, nodeID);
-	s_send(socketMap[nodeID], message);	
+	printf("%i sending %s to %i\n", this->nodeID, message, nodeID);
+	s_send(socketMap[nodeID], message);
 }
 void Node::write(int memAddress, int value, int nodeID)
 {
@@ -434,6 +440,7 @@ void Node::write(int memAddress, int value, int nodeID)
 	}
 	entry = nodeLocalMem[memAddress];
 	entry->value = value;
+	printf("node %i stored new value %i in %i\n", this->nodeID, entry->value, memAddress);
 	if(memMap[memAddress] == this->nodeID) //if this node is the owner, send invalidates
 	{
 		char invalidate_msg[BUFFER_SIZE];
@@ -447,10 +454,12 @@ void Node::write(int memAddress, int value, int nodeID)
 			entry->readers.pop_back();
 			if(rdr != nodeID)	// don't want to invaliate writer's val
 			{
+				printf("sending invalidate message: %s to %i\n", invalidate_msg, rdr);
 				send(rdr,invalidate_msg);
 			}
-		}	
-		entry->readers.push_back(nodeID); //the writer has a cache copy
+		}
+		if(nodeID != this->nodeID)	
+			entry->readers.push_back(nodeID); //the writer has a cache copy
 	}
 	postLock(localMemLock);
 }
@@ -496,7 +505,6 @@ void * acceptConnections(void * nodeClass)
 	}
 	return NULL;	
 }
-
 void * spawnNewReciever(void * information)
 {
 	spawnNewRecieverInfo info =*((spawnNewRecieverInfo*)information);
@@ -506,12 +514,21 @@ void * spawnNewReciever(void * information)
 	char * buf = new char[BUFFER_SIZE];
 	buf[0] = 0;
 	int i = 0;
+	pthread_t * newThread;
+	HandleInfo * handleInfo;
 	while(s_recv(connectedSocket, c, 1))	
 	{
         	c[1] = 0;
         	if(strcmp(c,"+") == 0)
         	{
-    			node->handle(buf);
+    			newThread = new pthread_t;
+			handleInfo = new HandleInfo;
+			handleInfo->node = node;
+			handleInfo->buf = new char[BUFFER_SIZE];
+			strcpy(handleInfo->buf, buf);
+			node->connectingThreads.push_back(newThread);
+			pthread_create(newThread, NULL, 
+						handleThread, handleInfo);
         		strcpy(buf,"");
         	}
         	else
@@ -522,4 +539,12 @@ void * spawnNewReciever(void * information)
 	delete buf;
   return NULL;
 }
-
+void * handleThread(void * handleInfo)
+{
+	HandleInfo * info = (HandleInfo*)handleInfo;
+	Node * node = info->node;
+	char * buf = info->buf;
+	node->handle(buf);
+	delete info->buf;
+	delete info;
+}
