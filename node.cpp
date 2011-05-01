@@ -112,13 +112,13 @@ void Node::handle(char * buf)
 	DEBUGPRINT printf("Node: %d recieved command %s\n",nodeID,buf);
 	bool respond = false;
 	bool acknowledge = false;
-	bool alreadyAcked = false; //only one ack postlock per msg
-	char * returnMessage = itoa(nodeID);
+	char returnMessage[BUFFER_SIZE];
+	set<int> ackWriteNodes;
+	strcpy(returnMessage, itoa(nodeID));
 	grabLock(strtokLock);
 	char copy[BUFFER_SIZE];
 	strcpy(copy, buf);
 	char * token = strtok(copy, ":");
-	//assert(token != NULL);
 	int commandNodeID = atoi(token);
 	if(commandNodeID == -1)
 	{
@@ -130,9 +130,10 @@ void Node::handle(char * buf)
 	int memAddr, value;
 	while(token != NULL)
 	{
-		DEBUGPRINT printf("command - %s\n", token);
-		memAddr = atoi(strtok(NULL, ":"));
-		DEBUGPRINT printf("memAddr - %i\n", memAddr);
+		char * tempMemAddr = strtok(NULL, ":");
+		if(tempMemAddr != NULL)
+			memAddr = atoi(tempMemAddr);
+
 		switch(token[0])
 		{
 			case 'R':
@@ -144,17 +145,23 @@ void Node::handle(char * buf)
 				strcat(returnMessage, ":"); //a flags a response
 				strcat(returnMessage,itoa(read(memAddr,commandNodeID)));
 				break;
+			case 'k':
+			case 'K':
+				//acknowledge of write
+				DEBUGPRINT printf("node %i ackonowledge of write\n", nodeID);
+				acknowledge = true;
+				break;
 			case 'A':
 			case 'a': //acknowledge of read request
-				DEBUGPRINT printf("node %i acknowledge\n", nodeID);
+				DEBUGPRINT printf("node %i acknowledge of read\n", nodeID);
 				acknowledge = true; 
-				if(alreadyAcked)
-					acknowledge = false;
 			case 'W':
 			case 'w': //write request
 				DEBUGPRINT printf("node %i write request\n", nodeID);
 				value = atoi(strtok(NULL, ":"));	
 				write(memAddr, value, commandNodeID);
+				if(token[0] != 'a' && token[0] != 'A')
+					ackWriteNodes.insert(commandNodeID);
 				break;					
 			case 'C': //queueCommands flag
 			case 'c':
@@ -174,14 +181,16 @@ void Node::handle(char * buf)
 	}	
 	postLock(strtokLock);
 	if(respond)
-	{
 		send(commandNodeID, returnMessage);	
-		printf("sent %s\n",returnMessage);
-	}
 	if(acknowledge)
-	{
 		postLock(workLock);
-		alreadyAcked = true;
+	
+	//send acknowledge of write to each node that wrote
+	set<int>::const_iterator ackEnd = ackWriteNodes.end();
+	for(set<int>::const_iterator it = ackWriteNodes.begin(); it!= ackEnd; it++)
+	{
+		DEBUGPRINT printf("%i acknowledge write to node %i\n", this->nodeID, *it);
+		send(*it, "0:k:");	
 	}
 }
 void Node::tokenAquired()
@@ -285,10 +294,11 @@ void Node::updateLocalMem(queue<char *> commands)
 		delete it->second;
 	}
 	nodeRequest.clear();
-	DEBUGPRINT printf("%d\n",sentMessages);
-	for(int i = 0; i < sentMessages; i++) //wait for all acknowledges to finish before returning
-	{
-		DEBUGPRINT printf("waiting on ack %d\n",i);
+DEBUGPRINT printf("%i waiting on %d acknowledges\n",this->nodeID, sentMessages);
+	
+	//wait for all acknowledges to finish before returning
+	for(int i = 0; i < sentMessages; i++) 	{
+		DEBUGPRINT printf("waiting on ack number %d\n",i);
 		grabLock(workLock);
 	}
 }
@@ -310,6 +320,7 @@ void Node::handleCommands(queue<char *> commands)
 		{
 			case ADD:
 			{
+				DEBUGPRINT printf("\n%i adding: \n", this->nodeID);
 				vector<int> memAddr;
 				token = strtok(command, ":"); ///>ignore type
 				token = strtok(NULL, ":"); ///> grab write address
@@ -327,44 +338,57 @@ void Node::handleCommands(queue<char *> commands)
 				
 				//add up all the stored bytes
 				for(int i = 0; i < memAddr.size(); i++)
+				{
+					DEBUGPRINT printf("%i value %i\n", memAddr[i], nodeLocalMem[memAddr[i]]->value);
 					sum += nodeLocalMem[memAddr[i]]->value;
+				}
 				sum += value; ///> add the last int
-				
+				printf("total sum for addr %i = %i\n", writeAddr, sum);
 				// add command string on to the nodeToWrite if it doesn't exist
 				int writeNodeID = memMap[writeAddr];
-				if(nodeToWrite.count(writeNodeID) == 0)
-				{
-					char * newEntry = nodeToWrite[writeNodeID];
-					newEntry = new char[BUFFER_SIZE];
-					strcpy(newEntry, itoa(nodeID));
+				if(writeNodeID != this->nodeID)
+				{ 
+					if(nodeToWrite.count(writeNodeID) == 0)
+					{
+						DEBUGPRINT printf("%i creating new write message for %i\n", this->nodeID, writeNodeID);
+						char * newEntry = new char[BUFFER_SIZE];
+						nodeToWrite[writeNodeID] = newEntry;
+						strcpy(newEntry, itoa(nodeID));
+					}
+					char * messageToSend = nodeToWrite[writeNodeID];
+					strcat(messageToSend, ":w:");		
+					strcat(messageToSend, itoa(writeAddr)); //address
+					strcat(messageToSend, ":"); 
+					strcat(messageToSend, itoa(sum)); //value
+					DEBUGPRINT printf("%i new send message to %i: %s\n", this->nodeID, writeNodeID, messageToSend);
 				}
-				char * messageToSend = nodeToWrite[writeNodeID];
-				strcat(messageToSend, ":w:");					
-				strcat(messageToSend, itoa(writeAddr)); //address
-				strcat(messageToSend, ":"); 
-				strcat(messageToSend, itoa(sum)); //value
-				send(writeNodeID,messageToSend);
 			}
 				break;
 			case PRINT:
 			{
 				int garbage = atoi(strtok(command,":"));
 				int memloc = atoi(strtok(NULL,":"));
-				cout<<"Memory location "<<memloc<<"contains "<<nodeLocalMem[memloc]<<endl;
+				cout<<"Memory location "<<memloc<<" contains "<<nodeLocalMem[memloc]->value
+					<<" stored at "<<memMap[memloc]<<endl;
 			}
 				break;
 		}
 		delete command;
 	}
+	int messagesSent = 0;
 	map<int, char *>::const_iterator writeEnd = nodeToWrite.end();
 	for(map<int, char *>::const_iterator it = nodeToWrite.begin(); it != writeEnd; it++) 
 	{
+		messagesSent++;
 		send(it->first, it->second);
 		delete it->second;
 	}
 	nodeToWrite.clear();
 	postLock(strtokLock);
 	postLock(localMemLock);
+	//wait for acknoledges for the sends
+	for(int i = 0; i < messagesSent; i++)
+		grabLock(workLock);
 	DEBUGPRINT printf("node %d finished handeling commands\n",nodeID);
 }
 void Node::releaseToken()
@@ -396,6 +420,7 @@ Node::Command Node::interpret(char * command)
 }
 void Node::send(int nodeID, char * message)
 {
+	DEBUGPRINT printf("%i sending %s to %i\n", this->nodeID, message, nodeID);
 	s_send(socketMap[nodeID], message);	
 }
 void Node::write(int memAddress, int value, int nodeID)
@@ -408,22 +433,25 @@ void Node::write(int memAddress, int value, int nodeID)
 		nodeLocalMem[memAddress] = entry;
 	}
 	entry = nodeLocalMem[memAddress];
-	char invalidate_msg[BUFFER_SIZE];
-	//set invalidate_msg
-	strcpy(invalidate_msg, itoa(Node::nodeID));
-	strcat(invalidate_msg, ":i:");
-	strcat(invalidate_msg, itoa(memAddress));
-	while(entry->readers.size() > 0) 
+	entry->value = value;
+	if(memMap[memAddress] == this->nodeID) //if this node is the owner, send invalidates
 	{
-		int rdr = entry->readers.back();
-		entry->readers.pop_back();
-		if(rdr != nodeID)	// don't want to invaliate writer's val
+		char invalidate_msg[BUFFER_SIZE];
+		//set invalidate_msg
+		strcpy(invalidate_msg, itoa(Node::nodeID));
+		strcat(invalidate_msg, ":i:");
+		strcat(invalidate_msg, itoa(memAddress));
+		while(entry->readers.size() > 0) 
 		{
-			send(rdr,invalidate_msg);
-		}
-	}	
-	//if(!ack) //if this is a read acknowledge write, writer is not using this value TODO ?
+			int rdr = entry->readers.back();
+			entry->readers.pop_back();
+			if(rdr != nodeID)	// don't want to invaliate writer's val
+			{
+				send(rdr,invalidate_msg);
+			}
+		}	
 		entry->readers.push_back(nodeID); //the writer has a cache copy
+	}
 	postLock(localMemLock);
 }
 int Node::read(int memAddress,int nodeID)

@@ -38,6 +38,7 @@ void bind(int sfd,int portNum)
         perror("failed to setup struct in new_socket");
     if(bind(sfd,sinfo->ai_addr,sinfo->ai_addrlen) == -1)
         perror("failed to bind socket");
+
     delete port;
 }
 
