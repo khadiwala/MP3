@@ -1,4 +1,10 @@
 ./dsm 0&
 ./dsm 1&
 ./dsm 2&
-./dsm 3
+./dsm 3&
+./dsm 4&
+./dsm 5&
+./dsm 6&
+./dsm 7&
+./dsm 8&
+./dsm 9&
