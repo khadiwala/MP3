@@ -59,6 +59,7 @@ int main(int argc, char * argv[])
 	while(fgets(com, BUFFER_SIZE,comfile) != NULL){
 		strcpy(tmp,com);
 		unsigned int sleeptime = atoi(strtok(com,"\n:"));
+		sleeptime = sleeptime * 1000;
 		usleep(sleeptime);
 		int nodeID = atoi(strtok(NULL,"\n:"));
 
@@ -74,7 +75,7 @@ int main(int argc, char * argv[])
 		strcpy(moretmp,"0:C:");
 		strcat(moretmp,strtok(comAndOpt,"\n")); //strtok strips new line from command
 		//send comAndOpt to nodeID
-		printf("%s\n",moretmp);
+		printf("Sent %s to %d\n",moretmp,nodeID);
 		s_send(nodeToSocket[nodeID],moretmp);
 	}
 	return 0;
