@@ -52,6 +52,7 @@ int main(int argc, char * argv[])
 		connect(nodeToSocket[it->first],it->second);
 	}
 	ports.clear();
+	s_send(nodeToSocket[0],"-1");
 	
 	char com[BUFFER_SIZE];
 	char tmp[BUFFER_SIZE];
@@ -76,7 +77,6 @@ int main(int argc, char * argv[])
 		printf("%s\n",moretmp);
 		s_send(nodeToSocket[nodeID],moretmp);
 	}
-	s_send(nodeToSocket[0],"-1");
 	return 0;
 }
 
