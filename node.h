@@ -17,7 +17,7 @@
 
 #define DSM_SIZE 100
 #define BUFFER_SIZE 256
-#define DEBUGPRINT if(true)
+#define DEBUGPRINT if(false)
 #define DEBUGLOCK if(false)
 using namespace std;
 

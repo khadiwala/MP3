@@ -61,7 +61,15 @@ Node::Node(int nodeID, int portNumber, vector<int>  memoryMap, map <int, int>por
 	if(successorID == -1) //I believe this connects the ring in the case that the nodeID is last
 		successorID = portMap.begin()->first;
 
-	cout<<nodeID<<" SUCCESSOR ID "<<successorID<<endl;
+	//create a file with the number of sent messages for this node
+	char filename[100];
+	strcpy(filename,"sendcount");
+	strcat(filename,itoa(nodeID));
+	FILE * f = fopen(filename,"w");
+	fprintf(f,"%d",0);
+	fclose(f);
+
+	DEBUGPRINT cout<<nodeID<<" SUCCESSOR ID "<<successorID<<endl;
 }
 Node::~Node()
 {
@@ -109,7 +117,7 @@ void Node::postLock(sem_t * lock)
 }
 void Node::handle(char * buf)
 {
-	//printf("Node: %d recieved command %s\n",nodeID,buf);
+	DEBUGPRINT printf("Node: %d recieved command %s\n",nodeID,buf);
 	bool respond = false;
 	bool acknowledge = false;
 	char returnMessage[BUFFER_SIZE];
@@ -413,6 +421,7 @@ void Node::handleCommands(queue<char *> commands)
 void Node::releaseToken()
 {
 	send(successorID, "-1");
+	
 }
 void Node::queueCommands(char * buf)
 {
@@ -442,6 +451,19 @@ void Node::send(int nodeID, char * message)
 {
 	DEBUGPRINT printf("%i sending %s to %i\n", this->nodeID, message, nodeID);
 	s_send(socketMap[nodeID], message);
+
+	//update number of sends
+	char filename[100];
+	strcpy(filename,"sendcount");
+	strcat(filename,itoa(nodeID));
+	FILE * f = fopen(filename,"r");
+	int count = 0;
+	fscanf(f,"%d",&count);
+	fclose(f);
+	count++;
+	f = fopen(filename,"w");
+	fprintf(f,"%d",count);
+	fclose(f);
 }
 void Node::write(int memAddress, int value, int nodeID)
 {
@@ -526,6 +548,7 @@ void * spawnNewReciever(void * information)
 	Node * node = (Node*)info.node;
 	int connectedSocket = info.newConnectedSocket;
 	char * c = new char[2];
+	c[0] = 0;
 	char * buf = new char[BUFFER_SIZE];
 	buf[0] = 0;
 	int i = 0;
@@ -534,10 +557,9 @@ void * spawnNewReciever(void * information)
 	while(s_recv(connectedSocket, c, 1))	
 	{
         	c[1] = 0;
-			//cout<<c[0];
         	if(strcmp(c,"+") == 0)
         	{
-			//printf("%i recieved message %s\n", node->nodeID, buf);
+			DEBUGPRINT printf("%i recieved message %s\n", node->nodeID, buf);
     		newThread = new pthread_t;
 			handleInfo = new HandleInfo;
 			handleInfo->node = node;

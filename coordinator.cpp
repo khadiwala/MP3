@@ -75,7 +75,7 @@ int main(int argc, char * argv[])
 		strcpy(moretmp,"0:C:");
 		strcat(moretmp,strtok(comAndOpt,"\n")); //strtok strips new line from command
 		//send comAndOpt to nodeID
-		printf("Sent %s to %d\n",moretmp,nodeID);
+		printf("sending %s to %d\n",moretmp,nodeID);
 		s_send(nodeToSocket[nodeID],moretmp);
 	}
 	return 0;
